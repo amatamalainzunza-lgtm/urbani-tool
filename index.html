@@ -707,8 +707,10 @@ function resetear() {
 
 // ─── CÁLCULO PRINCIPAL ────────────────────────────────────────
 function calcular() {
-  const rentaCLP = parseMonto(document.getElementById("inp-renta").value);
-  const pieCLP   = parseMonto(document.getElementById("inp-pie").value);
+  const rentaStr = document.getElementById("inp-renta").value.trim();
+  const pieStr   = document.getElementById("inp-pie").value.trim();
+  const rentaCLP = parseMonto(rentaStr);
+  const pieCLP   = parseMonto(pieStr);
   const plazo    = parseInt(document.getElementById("inp-plazo").value);
   const contrato = document.getElementById("inp-contrato").value;
   const antig    = document.getElementById("inp-antiguedad").value;
@@ -719,7 +721,7 @@ function calcular() {
 
   const area = document.getElementById("results-area");
 
-  if (!rentaCLP || !pieCLP) {
+  if (!rentaStr || pieStr === "") {
     area.innerHTML = `<div class="alerts"><div class="alert red"><span class="alert-icon">⚠</span><div><strong>Faltan datos obligatorios</strong>Ingresa renta líquida y pie disponible para continuar.</div></div></div>`;
     return;
   }
