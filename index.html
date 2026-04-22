@@ -372,6 +372,20 @@
   .tipo-precio-sub { font-size: 11px; color: var(--text3); }
   .tipo-count { font-size: 12px; color: var(--text3); text-align: right; }
 
+  .bono-tag {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    background: rgba(232,184,75,0.12);
+    color: var(--yellow);
+    border: 1px solid rgba(232,184,75,0.3);
+    border-radius: 3px;
+    padding: 1px 5px;
+    margin-left: 5px;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+
   /* UNIDADES DETALLE */
   .unidades-table {
     display: none;
@@ -482,6 +496,11 @@
           <option value="25">25 años</option>
           <option value="30" selected>30 años</option>
         </select>
+      </div>
+
+      <div class="field">
+        <label>Bono pie del proyecto (%)</label>
+        <input type="number" id="inp-bono" min="0" max="10" step="0.5" value="0" placeholder="0">
       </div>
     </div>
 
@@ -693,10 +712,10 @@ function toggleConfig() {
 }
 
 function resetear() {
-  ["inp-renta","inp-pie","inp-contrato","inp-antiguedad","inp-deudas","inp-proyecto","inp-tipologia","inp-tipo"].forEach(id => {
+  ["inp-renta","inp-pie","inp-bono","inp-contrato","inp-antiguedad","inp-deudas","inp-proyecto","inp-tipologia","inp-tipo"].forEach(id => {
     const el = document.getElementById(id);
     if (el.tagName === "SELECT") el.selectedIndex = 0;
-    else el.value = "";
+    else el.value = id === "inp-bono" ? "0" : "";
   });
   document.getElementById("results-area").innerHTML = `
     <div class="empty-state">
@@ -728,6 +747,7 @@ function calcular() {
 
   const { tasa, ufVal, ltv, pctDiv } = getConfig();
   const factor = calcFactorCuota(tasa, plazo);
+  const bonoPct = Math.min(Math.max(parseFloat(document.getElementById("inp-bono").value) || 0, 0), 1 - ltv - 0.01) / 100;
 
   const divMaxCLP = rentaCLP * pctDiv;
   const divMaxUF  = divMaxCLP / ufVal;
@@ -737,6 +757,18 @@ function calcular() {
   const presupuesto = Math.min(propMaxByIngreso, propMaxByPie);
   const pieNecesario = presupuesto * (1 - ltv) * ufVal;
   const rentaNecesaria = factor * (presupuesto * ltv) * ufVal / pctDiv;
+
+  // ── Presupuesto con bono pie ──
+  let presupuesto_bono = 0;
+  let propMaxByIngreso_bono = 0;
+  let propMaxByPie_bono = 0;
+  if (bonoPct > 0) {
+    const ltvBono   = ltv + bonoPct;
+    const piePctBono = 1 - ltvBono;                               // pie requerido como % del precio
+    propMaxByIngreso_bono = divMaxUF / (ltvBono * factor);        // ingreso soporta dividendo mayor
+    propMaxByPie_bono     = piePctBono > 0 ? (pieCLP / ufVal) / piePctBono : 0;
+    presupuesto_bono = Math.min(propMaxByIngreso_bono, propMaxByPie_bono);
+  }
 
   // ── Alertas de perfil crediticio ──
   const alertas = [];
@@ -769,7 +801,12 @@ function calcular() {
 
     if (pieCLP < pieNecesario * 0.9) {
       const falta = Math.ceil((pieNecesario - pieCLP) / 1000) * 1000;
-      alertas.push({ tipo: "yellow", titulo: "Pie insuficiente", msg: `Para acceder al presupuesto calculado se necesitan ${fmtCLP(falta)} adicionales de ahorro.` });
+      const bonoAyuda = bonoPct > 0 && presupuesto_bono > presupuesto;
+      if (bonoAyuda) {
+        alertas.push({ tipo: "yellow", titulo: "Pie insuficiente (bono activo)", msg: `Sin bono faltan ${fmtCLP(falta)}. Con bono pie del ${(bonoPct*100).toFixed(0)}% el presupuesto sube a ${fmtUF(presupuesto_bono)} — las unidades marcadas 🎁 son accesibles con ese beneficio.` });
+      } else {
+        alertas.push({ tipo: "yellow", titulo: "Pie insuficiente", msg: `Para acceder al presupuesto calculado se necesitan ${fmtCLP(falta)} adicionales de ahorro.` });
+      }
     }
 
     if (deudas === "si") {
@@ -783,11 +820,13 @@ function calcular() {
 
   // ── Filtrar stock ──
   let unidades = stockData.filter(u => {
-    if (u.valorLista <= 0 || u.valorLista > presupuesto) return false;
+    if (u.valorLista <= 0) return false;
     if (proyFilt && u.proyecto !== proyFilt) return false;
     if (dormFilt !== "" && String(u.dormitorios) !== dormFilt) return false;
     if (tipoFilt && u.tipo !== tipoFilt) return false;
-    return true;
+    const sinBono = u.valorLista <= presupuesto;
+    const conBono = presupuesto_bono > 0 && u.valorLista <= presupuesto_bono;
+    return sinBono || conBono;
   });
 
   // ── Construir HTML ──
@@ -815,6 +854,27 @@ function calcular() {
       <div class="f-value" style="font-size:17px">${fmtUF(presupuesto)}</div>
       <div class="f-sub">${fmtCLP(presupuesto * ufVal)}</div>
     </div>
+    ${bonoPct > 0 ? `
+    <div class="f-card" style="border-color: rgba(232,184,75,0.4); grid-column: 1 / -1">
+      <div class="f-label" style="color:var(--yellow)">🎁 Con bono pie ${(bonoPct*100).toFixed(0)}% — LTV efectivo ${((ltv+bonoPct)*100).toFixed(0)}%</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-top:6px">
+        <div>
+          <div style="font-size:11px;color:var(--text3)">Capacidad por ingreso</div>
+          <div class="f-value" style="color:var(--yellow)">${fmtUF(propMaxByIngreso_bono)}</div>
+          <div class="f-sub">dividendo mayor</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text3)">Capacidad por pie</div>
+          <div class="f-value" style="color:var(--yellow)">${fmtUF(propMaxByPie_bono)}</div>
+          <div class="f-sub">pie ${((1-ltv-bonoPct)*100).toFixed(0)}% requerido</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text3)">Presupuesto con bono</div>
+          <div class="f-value" style="font-size:17px;color:var(--yellow)">${fmtUF(presupuesto_bono)}</div>
+          <div class="f-sub">${fmtCLP(presupuesto_bono * ufVal)}</div>
+        </div>
+      </div>
+    </div>` : ""}
   </div>`;
 
   // Alertas
@@ -911,8 +971,9 @@ function calcular() {
 
       unids.sort((a,b) => a.valorLista - b.valorLista).forEach(u => {
         const hasDesc = u.valorDesc && u.valorDesc < u.valorLista;
+        const necesitaBono = bonoPct > 0 && u.valorLista > presupuesto && u.valorLista <= presupuesto_bono;
         html += `<tr>
-          <td class="td-desc">${u.nBien}</td>
+          <td class="td-desc">${u.nBien}${necesitaBono ? ' <span class="bono-tag">🎁 bono</span>' : ''}</td>
           <td>${u.piso || "–"}</td>
           <td>${u.orientacion || "–"}</td>
           <td class="td-mono">${u.supUtil ? u.supUtil.toFixed(1) + " m²" : "–"}</td>
